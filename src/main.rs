@@ -1,5 +1,6 @@
 use std::env;
 use std::path::PathBuf;
+use crate::repository::find_repo;
 use crate::utils::adjust_canonicalization;
 
 mod repository;
@@ -15,6 +16,8 @@ fn main() {
         println!("git_rs");
         return;
     }
+
+    let mut repo = repository::Repository::new(find_repo(env::current_dir().unwrap()).unwrap());
 
     match &*args[0] {
         "add" => {
@@ -36,9 +39,9 @@ fn main() {
             
         }
         "init" => {
-            let mut repo = repository::Repository::new(PathBuf::from(if args.len() == 1 { "." } else { &*args[1] }));
-            match repo.create() {
-                Ok(_) => println!("Initialized empty Git repository in {}", adjust_canonicalization(&repo.gitdir)),
+            let mut r = repository::Repository::new(PathBuf::from(if args.len() == 1 { "." } else { &*args[1] }));
+            match r.create() {
+                Ok(_) => println!("Initialized empty Git repository in {}", adjust_canonicalization(&r.gitdir)),
                 Err(e) => eprintln!("Error: {}", e)
             }
         }

@@ -7,3 +7,4 @@ edition = "2021"
 
 [dependencies]
 configparser = "3.0.2"
+sha1 = "0.10.6"

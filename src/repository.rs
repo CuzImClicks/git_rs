@@ -3,12 +3,24 @@ use std::{path::PathBuf, fs::File, io::Write};
 use std::path::Path;
 
 
-fn vec_to_pathbuf<T: AsRef<Path>>(paths: Vec<T>) -> PathBuf {
+pub fn vec_to_pathbuf<T: AsRef<Path>>(paths: Vec<T>) -> PathBuf {
     let mut pathbuf = PathBuf::new();
     for path in paths {
         pathbuf.push(path);
     }
     pathbuf
+}
+
+
+pub fn find_repo<P: AsRef<Path>>(p: P) -> Option<PathBuf> {
+    let p = p.as_ref();
+    if p.join(".git").exists() {
+        Some(p.to_path_buf())
+    } else if let Some(parent) = p.parent() {
+        find_repo(parent)
+    } else {
+        None
+    }
 }
 
 
