@@ -1,10 +1,13 @@
 use std::env;
 use std::path::PathBuf;
+
+use crate::object::{OBJECT_TYPES, read_git_object};
 use crate::repository::find_repo;
 use crate::utils::adjust_canonicalization;
 
 mod repository;
 mod utils;
+mod object;
 
 fn main() {
 
@@ -24,6 +27,20 @@ fn main() {
 
         }
         "cat-file" => {
+            match args.len() {
+                 x if x <= 2 => {
+                    eprintln!("Error: Not enough arguments provided!");
+                }
+                3 => {
+                    if !OBJECT_TYPES.contains(&&*args[1]) {
+                        eprintln!("Error: Invalid object type provided!");
+                    }
+                    println!("{}", String::from_utf8(read_git_object(&repo, args[2].to_string()).unwrap().serialize()).unwrap());
+                }
+                _ => {
+
+                }
+            }
             
         }
         "check-ignore" => {
@@ -36,7 +53,7 @@ fn main() {
             
         }
         "hash-object" => {
-            
+
         }
         "init" => {
             let mut r = repository::Repository::new(PathBuf::from(if args.len() == 1 { "." } else { &*args[1] }));

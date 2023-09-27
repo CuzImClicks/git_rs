@@ -7,4 +7,5 @@ edition = "2021"
 
 [dependencies]
 configparser = "3.0.2"
+miniz_oxide = "0.7.1"
 sha1 = "0.10.6"

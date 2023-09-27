@@ -1,7 +1,6 @@
 use core::panic;
-use std::{path::PathBuf, fs::File, io::Write};
+use std::{fs::File, io::Write, path::PathBuf};
 use std::path::Path;
-
 
 pub fn vec_to_pathbuf<T: AsRef<Path>>(paths: Vec<T>) -> PathBuf {
     let mut pathbuf = PathBuf::new();
@@ -34,7 +33,7 @@ pub struct Repository {
 
 impl Repository {
 
-    fn repo_path_vec<T: AsRef<Path>>(&self, path: Vec<T>) -> PathBuf {
+    pub fn repo_git_path_vec<T: AsRef<Path>>(&self, path: Vec<T>) -> PathBuf {
         let mut new_path = self.gitdir.clone();
         for p in path {
             new_path = new_path.join(p);
@@ -42,13 +41,26 @@ impl Repository {
         new_path
     }
 
-    fn repo_path<T: AsRef<Path>>(&self, path: T) -> PathBuf {
+    pub fn repo_git_path<T: AsRef<Path>>(&self, path: T) -> PathBuf {
         let new_path = self.gitdir.clone();
         new_path.join(path)
     }
 
-    fn repo_create_file<T: AsRef<Path>>(&self, path: T) -> Result<PathBuf, String> {
-        let path = self.repo_path(path.as_ref());
+    pub fn repo_path_vec<T: AsRef<Path>>(&self, path: Vec<T>) -> PathBuf {
+        let mut new_path = self.worktree.clone();
+        for p in path {
+            new_path = new_path.join(p);
+        }
+        new_path
+    }
+
+    pub fn repo_path<T: AsRef<Path>>(&self, path: T) -> PathBuf {
+        let new_path = self.worktree.clone();
+        new_path.join(path)
+    }
+
+    pub fn repo_create_file<T: AsRef<Path>>(&self, path: T) -> Result<PathBuf, String> {
+        let path = self.repo_git_path(path.as_ref());
         if path.exists() {
             return Ok(path);
         }
@@ -69,8 +81,8 @@ impl Repository {
         Ok(path.clone())
     }
 
-    fn repo_create_file_vec<T: AsRef<Path>>(&self, path: Vec<T>) -> Result<PathBuf, String> {
-        let path = self.repo_path_vec(path);
+    pub fn repo_create_file_vec<T: AsRef<Path>>(&self, path: Vec<T>) -> Result<PathBuf, String> {
+        let path = self.repo_git_path_vec(path);
         if path.exists() {
             return Ok(path);
         }
@@ -100,20 +112,20 @@ impl Repository {
         self.repo_create_file_vec(vec!["refs", "tags"])?;
         self.repo_create_file_vec(vec!["refs", "heads"])?;
         
-        let mut description = File::create(self.repo_path("description")).expect("Failed to create description file.");
+        let mut description = File::create(self.repo_git_path("description")).expect("Failed to create description file.");
         description.write_all("Unnamed repository; edit this file 'description' to name the repository.\n".as_bytes()).expect("Failed to write description file");
         
-        let mut head = File::create(self.repo_path("HEAD")).unwrap();
+        let mut head = File::create(self.repo_git_path("HEAD")).unwrap();
         head.write_all("ref: refs/heads/master\n".as_bytes()).expect("Failed to write HEAD file.");
 
-        let mut config = File::create(self.repo_path("config")).unwrap();
+        let mut config = File::create(self.repo_git_path("config")).unwrap();
         config.write_all(self.default_config().writes().as_bytes()).expect("Failed to write config file.");
         self.initialised = true;
         Ok(())
     }
 
     fn read_config(&mut self) -> Result<(), String>{
-        let cf = self.repo_path(PathBuf::from("config"));
+        let cf = self.repo_git_path(PathBuf::from("config"));
 
         if cf.exists() && cf.is_file() {
             self.config.load(cf).unwrap();
@@ -128,6 +140,10 @@ impl Repository {
         config.set("core", "filemode", Some("false".to_string()));
         config.set("core", "bare", Some("false".to_string()));
         config
+    }
+
+    pub fn find_object(&self, name: String, format: &str, follow: bool) -> PathBuf {
+        PathBuf::from(name)
     }
 
     pub fn new(path: PathBuf) -> Repository {
