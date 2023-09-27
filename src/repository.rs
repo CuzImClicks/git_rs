@@ -111,6 +111,8 @@ impl Repository {
         self.repo_create_file("objects")?;
         self.repo_create_file_vec(vec!["refs", "tags"])?;
         self.repo_create_file_vec(vec!["refs", "heads"])?;
+
+        // FIXME: .git repo is not hidden on windows
         
         let mut description = File::create(self.repo_git_path("description")).expect("Failed to create description file.");
         description.write_all("Unnamed repository; edit this file 'description' to name the repository.\n".as_bytes()).expect("Failed to write description file");

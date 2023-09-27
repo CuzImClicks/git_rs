@@ -1,7 +1,9 @@
 use std::env;
+use std::fs::File;
+use std::io::Read;
 use std::path::PathBuf;
 
-use crate::object::{OBJECT_TYPES, read_git_object};
+use crate::object::{git_object_from_data, OBJECT_TYPES, read_git_object};
 use crate::repository::find_repo;
 use crate::utils::adjust_canonicalization;
 
@@ -35,7 +37,7 @@ fn main() {
                     if !OBJECT_TYPES.contains(&&*args[1]) {
                         eprintln!("Error: Invalid object type provided!");
                     }
-                    println!("{}", String::from_utf8(read_git_object(&repo, args[2].to_string()).unwrap().serialize()).unwrap());
+                    println!("{}", String::from_utf8(read_git_object(&repo, args[2].to_string()).unwrap().get_data()).unwrap());
                 }
                 _ => {
 
@@ -53,7 +55,36 @@ fn main() {
             
         }
         "hash-object" => {
+            // hash-object [-w] [-t TYPE] FILE
+            match args.len() {
+                x if x <= 1 => {
+                    eprintln!("Error: Not enough arguments provided!");
+                }
+                x if (2..=4).contains(&x) => {
+                    let t = if args.contains(&"-t".to_string()) {
+                        args[args.iter().position(|x| x == "-t").unwrap() + 1].clone()
+                    } else {
+                        "blob".to_string()
+                    };
+                    let write: bool = args.contains(&"-w".to_string());
+                    let path = repo.repo_path(&args[args.len() - 1]);
+                    if !path.exists() {
+                        eprintln!("Error: File does not exist!");
+                        return;
+                    }
 
+                    let mut file = File::open(path).unwrap();
+                    let mut buf = vec![];
+                    file.read_to_end(&mut buf).unwrap();
+                    let obj = git_object_from_data(buf, &t).unwrap();
+                    if write {
+                        obj.write(&repo);
+                    } else {
+                        println!("{}", obj.serialize()); // FIXME: doesnt match with the git version
+                    }
+                }
+                _ => {}
+            }
         }
         "init" => {
             let mut r = repository::Repository::new(PathBuf::from(if args.len() == 1 { "." } else { &*args[1] }));
