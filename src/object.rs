@@ -116,8 +116,8 @@ pub struct GitBlob {
 
 impl GitObject for GitBlob {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
-        // FIXME: remove LF CR
-        //let data = if data.ends_with("".as_ref()) { data[0..data.len()-1].to_vec() } else { data };
+        // remove CR LF
+        let data = if cfg!(windows) { if data.ends_with(&[13, 10]) { data[0..data.len() - 3].to_vec() } else { data } } else { data };
         GitBlob { data }
     }
     fn get_data(&self) -> Vec<u8> {

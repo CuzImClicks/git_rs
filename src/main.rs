@@ -78,7 +78,7 @@ fn main() {
                     file.read_to_end(&mut buf).unwrap();
                     let obj = git_object_from_data(buf, &t).unwrap();
                     if write {
-                        obj.write(&repo);
+                        obj.write(&repo).unwrap();
                     } else {
                         println!("{}", obj.serialize()); // FIXME: doesnt match with the git version
                     }
