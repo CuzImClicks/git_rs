@@ -1,11 +1,11 @@
 use std::fs::File;
 use std::io::{Read, Write};
-use std::path::PathBuf;
 
 use sha1::{Digest, Sha1};
 use sha1::digest::FixedOutput;
 
 use crate::repository::Repository;
+use crate::utils::crlf_to_lf;
 
 pub fn read_git_object(repo: &Repository, sha: String) -> Result<Box<dyn GitObject>, String> {
     let path = repo.repo_git_path_vec(vec!["objects", &sha[0..2], &sha[2..]]);
@@ -116,9 +116,7 @@ pub struct GitBlob {
 
 impl GitObject for GitBlob {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
-        // remove CR LF
-        let data = if cfg!(windows) { if data.ends_with(&[13, 10]) { data[0..data.len() - 3].to_vec() } else { data } } else { data };
-        GitBlob { data }
+        GitBlob { data: crlf_to_lf(&data) }
     }
     fn get_data(&self) -> Vec<u8> {
         self.data.clone()
