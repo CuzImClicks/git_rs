@@ -61,8 +61,8 @@ fn main() {
                     eprintln!("Error: Not enough arguments provided!");
                 }
                 x if (2..=4).contains(&x) => {
-                    let t = if args.contains(&"-t".to_string()) {
-                        args[args.iter().position(|x| x == "-t").unwrap() + 1].clone()
+                    let t: String = if let Some(i) = args.iter().position(|x| x == "-t") {
+                        args.get(i + 1).unwrap_or(&"blob".to_string()).clone()
                     } else {
                         "blob".to_string()
                     };
@@ -78,7 +78,9 @@ fn main() {
                     file.read_to_end(&mut buf).unwrap();
                     let obj = git_object_from_data(buf, &t).unwrap();
                     if write {
-                        obj.write(&repo).unwrap();
+                        if let Err(e) = obj.write(&repo) {
+                            eprintln!("Error writing object: {}", e);
+                        }
                     } else {
                         println!("{}", obj.serialize()); // FIXME: doesnt match with the git version
                     }
