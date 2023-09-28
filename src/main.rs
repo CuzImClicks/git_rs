@@ -3,7 +3,7 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
-use crate::object::{git_object_from_data, OBJECT_TYPES, read_git_object};
+use crate::object::{deserialize, OBJECT_TYPES, read_git_object};
 use crate::repository::find_repo;
 use crate::utils::adjust_canonicalization;
 
@@ -37,7 +37,7 @@ fn main() {
                     if !OBJECT_TYPES.contains(&&*args[1]) {
                         eprintln!("Error: Invalid object type provided!");
                     }
-                    println!("{}", String::from_utf8(read_git_object(&repo, args[2].to_string()).unwrap().get_data()).unwrap());
+                    println!("{}", String::from_utf8(read_git_object(&repo, args[2].to_string()).unwrap().get_raw_data()).unwrap());
                 }
                 _ => {
 
@@ -76,7 +76,7 @@ fn main() {
                     let mut file = File::open(path).unwrap();
                     let mut buf = vec![];
                     file.read_to_end(&mut buf).unwrap();
-                    let obj = git_object_from_data(buf, &t).unwrap();
+                    let obj = deserialize(buf, &t).unwrap();
                     if write {
                         if let Err(e) = obj.write(&repo) {
                             eprintln!("Error writing object: {}", e);

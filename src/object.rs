@@ -28,11 +28,12 @@ pub fn read_git_object(repo: &Repository, sha: String) -> Result<Box<dyn GitObje
     if size != raw.len() -y - 1{
         return Err(format!("Malformed object {}", sha));
     }
-    git_object_from_data(raw[y+1..].as_bytes().to_vec(), &fmt)
+    deserialize(raw[y+1..].as_bytes().to_vec(), &fmt)
 }
 
 
-pub fn git_object_from_data(data: Vec<u8>, fmt: &str) -> Result<Box<dyn GitObject>, String> {
+/// Creates a new GitObject from the serialized data of an object.
+pub fn deserialize(data: Vec<u8>, fmt: &str) -> Result<Box<dyn GitObject>, String> {
     match fmt {
         "commit" => Ok(Box::new(GitCommit::new(data))),
         "blob" => Ok(Box::new(GitBlob::new(data))),
@@ -49,11 +50,13 @@ pub trait GitObject {
 
     fn new(data: Vec<u8>) -> Self where Self: Sized;
 
+    /// Writes the serialized form of the object to the repository object store, after
+    /// compressing it with zlib deflate.
     fn write(&self, repo: &Repository) -> Result<(), String>{
-        let data: Vec<u8> = self.get_data();
+        let data: Vec<u8> = self.get_raw_data();
         let (before, after) = &data.split_at(2);
         let path = repo.repo_create_file_vec(vec!["objects", &*String::from_utf8(before.to_vec()).unwrap(), &*String::from_utf8(after.to_vec()).unwrap()]).unwrap();
-        let result = self.get_formatted();
+        let result = self.serialize();
         if !path.exists() {
             let mut f = File::create(path).unwrap();
             f.write_all(miniz_oxide::deflate::compress_to_vec_zlib(result.as_bytes(), 1).as_slice()).unwrap();
@@ -63,15 +66,23 @@ pub trait GitObject {
         }
     }
 
-    fn serialize(&self) -> String {
+    /// Returns a hash of the serialized data.
+    ///
+    /// See: [`GitObject::serialize`]
+    fn hash(&self) -> String {
         let mut hasher = Sha1::new();
-        hasher.update(self.get_formatted().as_bytes());
+        hasher.update(self.serialize().as_bytes());
         let finalized = hasher.finalize_fixed();
         hex::encode(finalized)
     }
 
-    fn get_formatted(&self) -> String {
-        let data = self.get_data();
+    /// Returns the object in serialized form.
+    ///
+    /// `<blob|tree|commit|tag> <len_data>\0<data>`
+    ///
+    /// See: [`GitObject::get_raw_data`] is the data of the object.
+    fn serialize(&self) -> String {
+        let data = self.get_raw_data();
         let result = format!("{} {}\0{}", self.format(), &data.len(), String::from_utf8(data.clone()).unwrap());
         result
     }
@@ -81,7 +92,7 @@ pub trait GitObject {
 
     }
 
-    fn get_data(&self) -> Vec<u8>;
+    fn get_raw_data(&self) -> Vec<u8>;
 
     fn deserialize(&self, data: Vec<u8>);
     
@@ -89,16 +100,16 @@ pub trait GitObject {
 }
 
 pub struct GitCommit {
-    data: Vec<u8>,
+    raw_data: Vec<u8>,
 }
 
 impl GitObject for GitCommit {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
-        GitCommit { data }
+        GitCommit { raw_data: data }
     }
 
-    fn get_data(&self) -> Vec<u8> {
-        todo!()
+    fn get_raw_data(&self) -> Vec<u8> {
+        self.raw_data.clone()
     }
 
     fn deserialize(&self, data: Vec<u8>) {
@@ -111,15 +122,15 @@ impl GitObject for GitCommit {
 }
 
 pub struct GitBlob {
-    data: Vec<u8>,
+    raw_data: Vec<u8>,
 }
 
 impl GitObject for GitBlob {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
-        GitBlob { data: crlf_to_lf(&data) }
+        GitBlob { raw_data: crlf_to_lf(&data) }
     }
-    fn get_data(&self) -> Vec<u8> {
-        self.data.clone()
+    fn get_raw_data(&self) -> Vec<u8> {
+        self.raw_data.clone()
     }
     fn deserialize(&self, data: Vec<u8>) {
         todo!()
@@ -130,15 +141,15 @@ impl GitObject for GitBlob {
 }
 
 pub struct GitTree {
-    data: Vec<u8>,
+    raw_data: Vec<u8>,
 }
 
 impl GitObject for GitTree {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
-        GitTree { data }
+        GitTree { raw_data: data }
     }
 
-    fn get_data(&self) -> Vec<u8> {
+    fn get_raw_data(&self) -> Vec<u8> {
         todo!()
     }
 
@@ -152,16 +163,16 @@ impl GitObject for GitTree {
 }
 
 pub struct GitTag {
-    data: Vec<u8>,
+    raw_data: Vec<u8>,
 }
 
 impl GitObject for GitTag {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
-        GitTag { data }
+        GitTag { raw_data: data }
     }
 
-    fn get_data(&self) -> Vec<u8> {
-        todo!()
+    fn get_raw_data(&self) -> Vec<u8> {
+        self.raw_data.clone()
     }
 
     fn deserialize(&self, data: Vec<u8>) {
