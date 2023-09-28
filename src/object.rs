@@ -1,5 +1,6 @@
 use std::fs::File;
 use std::io::{Read, Write};
+use std::path::PathBuf;
 
 use sha1::{Digest, Sha1};
 use sha1::digest::FixedOutput;
@@ -48,22 +49,31 @@ pub trait GitObject {
 
     fn new(data: Vec<u8>) -> Self where Self: Sized;
 
-    fn write(&self, repo: &Repository) {
-        let serialized: String = self.serialize();
-        let (before, after) = serialized.split_at(2);
-        let path = repo.repo_create_file_vec(vec!["objects", before, after]).unwrap();
+    fn write(&self, repo: &Repository) -> Result<(), String>{
+        let data: Vec<u8> = self.get_data();
+        let (before, after) = &data.split_at(2);
+        let path = repo.repo_create_file_vec(vec!["objects", &*String::from_utf8(before.to_vec()).unwrap(), &*String::from_utf8(after.to_vec()).unwrap()]).unwrap();
+        let result = self.get_formatted();
         if !path.exists() {
             let mut f = File::create(path).unwrap();
-            f.write_all(miniz_oxide::deflate::compress_to_vec_zlib((*serialized).as_ref(), 1).as_slice()).unwrap();
+            f.write_all(miniz_oxide::deflate::compress_to_vec_zlib(result.as_bytes(), 1).as_slice()).unwrap();
+            Ok(())
+        } else {
+            Err("Object already exists".to_string())
         }
     }
 
     fn serialize(&self) -> String {
-        let data = self.get_data();
-        let result = format!("{} {}\0{}", self.format(), &data.len(), String::from_utf8(data).unwrap());
         let mut hasher = Sha1::new();
-        hasher.update(result.as_bytes());
-        hex::encode(hasher.finalize_fixed())
+        hasher.update(self.get_formatted().as_bytes());
+        let finalized = hasher.finalize_fixed();
+        hex::encode(finalized)
+    }
+
+    fn get_formatted(&self) -> String {
+        let data = self.get_data();
+        let result = format!("{} {}\0{}", self.format(), &data.len(), String::from_utf8(data.clone()).unwrap());
+        result
     }
 
 
@@ -106,6 +116,8 @@ pub struct GitBlob {
 
 impl GitObject for GitBlob {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
+        // FIXME: remove LF CR
+        //let data = if data.ends_with("".as_ref()) { data[0..data.len()-1].to_vec() } else { data };
         GitBlob { data }
     }
     fn get_data(&self) -> Vec<u8> {
