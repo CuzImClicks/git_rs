@@ -190,6 +190,12 @@ pub struct GitTree {
     raw_data: Vec<u8>,
 }
 
+pub struct GitTreeLeaf {
+    pub mode: String,
+    pub name: String,
+    pub sha: String,
+}
+
 impl GitObject for GitTree {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
         GitTree { raw_data: data }
@@ -200,7 +206,7 @@ impl GitObject for GitTree {
     }
 
     fn get_raw_data(&self) -> Vec<u8> {
-        todo!()
+        self.raw_data.clone()
     }
 
     fn format(&self) -> &str {

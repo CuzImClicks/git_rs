@@ -113,6 +113,13 @@ fn main() {
         "ls-files" => {
             
         }
+        "decompress" => {
+            let mut file = File::open(&args[1]).unwrap();
+            let mut buf: Vec<u8> = vec![];
+            file.read_to_end(&mut buf).unwrap();
+            let raw: String = String::from_utf8(miniz_oxide::inflate::decompress_to_vec_zlib(&buf).unwrap()).unwrap();
+            println!("{}", raw);
+        }
         "ls-tree" => {
             
         }
