@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
 
@@ -52,7 +53,7 @@ pub trait GitObject {
 
     /// Writes the serialized form of the object to the repository object store, after
     /// compressing it with zlib deflate.
-    fn write(&self, repo: &Repository) -> Result<(), String>{
+    fn write(&self, repo: &Repository) -> Result<(), String> {
         let data: Vec<u8> = self.get_raw_data();
         let (before, after) = &data.split_at(2);
         let path = repo.repo_create_file_vec(vec!["objects", &*String::from_utf8(before.to_vec()).unwrap(), &*String::from_utf8(after.to_vec()).unwrap()]).unwrap();
@@ -87,33 +88,63 @@ pub trait GitObject {
         result
     }
 
-
-    fn init(&self) {
-
-    }
-
     fn get_raw_data(&self) -> Vec<u8>;
 
-    fn deserialize(&self, data: Vec<u8>);
-    
     fn format(&self) -> &str;
 }
 
 pub struct GitCommit {
     raw_data: Vec<u8>,
+    tree: String,
+    parent: Vec<String>,
+    author: String,
+    committer: String,
+    gpgsig: Option<String>,
+    message: String
 }
 
 impl GitObject for GitCommit {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
-        GitCommit { raw_data: data }
+        let string: String = String::from_utf8(data.clone()).unwrap();
+        let mut metadata: HashMap<&str, String> = HashMap::new();
+        let big_split: Vec<&str> = string.splitn(2, "\n\n").collect::<Vec<&str>>();
+        let message: String = big_split[1].to_string();
+        let header: Vec<&str> = big_split[0].split("\ngpgsig").collect::<Vec<&str>>();
+        let gpgsig: Option<String> = if header.len() >= 2 { Some(header[1].to_string()) } else { None };
+        for line in header[0].lines() {
+            let split = line.splitn(2, ' ').collect::<Vec<&str>>();
+            if split[0] == "parent" && metadata.contains_key("parent") {
+                let parent: Vec<String> = vec![
+                    metadata.get("parent").unwrap().to_string(),
+                    split[1].to_string()
+                ];
+                metadata.insert(split[0], parent.join(" "));
+                continue;
+            }
+            metadata.insert(split[0], split[1].to_string());
+        }
+        let tree: String = metadata.get("tree").unwrap_or(&String::new()).to_string();
+        let parent: Vec<String> = metadata.get("parent").unwrap_or(&String::new()).split(" ")
+            .collect::<Vec<&str>>().
+            iter()
+            .map(|s| s.to_string())
+            .collect();
+        let author: String = metadata.get("author").unwrap_or(&String::new()).to_string();
+        let committer: String = metadata.get("committer").unwrap_or(&String::new()).to_string();
+
+        GitCommit {
+            raw_data: data,
+            tree,
+            parent,
+            author,
+            committer,
+            gpgsig,
+            message: message.to_string(),
+        }
     }
 
     fn get_raw_data(&self) -> Vec<u8> {
         self.raw_data.clone()
-    }
-
-    fn deserialize(&self, data: Vec<u8>) {
-        todo!()
     }
 
     fn format(&self) -> &str {
@@ -129,12 +160,11 @@ impl GitObject for GitBlob {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
         GitBlob { raw_data: crlf_to_lf(&data) }
     }
+
     fn get_raw_data(&self) -> Vec<u8> {
         self.raw_data.clone()
     }
-    fn deserialize(&self, data: Vec<u8>) {
-        todo!()
-    }
+
     fn format(&self) -> &str {
         "blob"
     }
@@ -150,10 +180,6 @@ impl GitObject for GitTree {
     }
 
     fn get_raw_data(&self) -> Vec<u8> {
-        todo!()
-    }
-
-    fn deserialize(&self, data: Vec<u8>) {
         todo!()
     }
 
@@ -173,10 +199,6 @@ impl GitObject for GitTag {
 
     fn get_raw_data(&self) -> Vec<u8> {
         self.raw_data.clone()
-    }
-
-    fn deserialize(&self, data: Vec<u8>) {
-        todo!()
     }
 
     fn format(&self) -> &str {
