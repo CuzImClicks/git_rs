@@ -30,14 +30,12 @@ fn main() {
         }
         "cat-file" => {
             match args.len() {
-                 x if x <= 2 => {
-                    eprintln!("Error: Not enough arguments provided!");
+                 x if x <= 1 => {
+                     eprintln!("Error: Not enough arguments provided!");
+                     eprintln!("Usage: git cat-file <object>");
                 }
-                3 => {
-                    if !OBJECT_TYPES.contains(&&*args[1]) {
-                        eprintln!("Error: Invalid object type provided!");
-                    }
-                    println!("{}", String::from_utf8(read_git_object(&repo, args[2].to_string()).unwrap().get_raw_data()).unwrap());
+                2 => {
+                    println!("{}", String::from_utf8(read_git_object(&repo, args[1].to_string()).unwrap().get_raw_data()).unwrap());
                 }
                 _ => {
 
