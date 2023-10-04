@@ -8,7 +8,7 @@ use sha1::digest::FixedOutput;
 use crate::repository::Repository;
 use crate::utils::crlf_to_lf;
 
-pub fn read_git_object(repo: &Repository, sha: String) -> Result<Box<dyn GitObject>, String> {
+pub fn read_git_object(repo: &Repository, sha: &String) -> Result<Box<dyn GitObject>, String> {
     let path = repo.repo_git_path_vec(vec!["objects", &sha[0..2], &sha[2..]]);
 
     if !path.exists() {
@@ -50,6 +50,8 @@ pub const OBJECT_TYPES: [&str; 4] = ["commit", "tree", "blob", "tag"];
 pub trait GitObject {
 
     fn new(data: Vec<u8>) -> Self where Self: Sized;
+
+    fn as_any(&self) -> &dyn std::any::Any;
 
     /// Writes the serialized form of the object to the repository object store, after
     /// compressing it with zlib deflate.
@@ -95,12 +97,12 @@ pub trait GitObject {
 
 pub struct GitCommit {
     raw_data: Vec<u8>,
-    tree: String,
-    parent: Vec<String>,
-    author: String,
-    committer: String,
-    gpgsig: Option<String>,
-    message: String
+    pub tree: String,
+    pub parent: Vec<String>,
+    pub author: String,
+    pub committer: String,
+    pub gpgsig: Option<String>,
+    pub message: String
 }
 
 impl GitObject for GitCommit {
@@ -108,11 +110,14 @@ impl GitObject for GitCommit {
         let string: String = String::from_utf8(data.clone()).unwrap();
         let mut metadata: HashMap<&str, String> = HashMap::new();
         let big_split: Vec<&str> = string.splitn(2, "\n\n").collect::<Vec<&str>>();
-        let message: String = big_split[1].to_string();
+        let message: String = big_split[1].to_string().trim_end().to_string();
         let header: Vec<&str> = big_split[0].split("\ngpgsig").collect::<Vec<&str>>();
         let gpgsig: Option<String> = if header.len() >= 2 { Some(header[1].to_string()) } else { None };
         for line in header[0].lines() {
             let split = line.splitn(2, ' ').collect::<Vec<&str>>();
+            if split.len() == 1 {
+                continue;
+            }
             if split[0] == "parent" && metadata.contains_key("parent") {
                 let parent: Vec<String> = vec![
                     metadata.get("parent").unwrap().to_string(),
@@ -124,10 +129,13 @@ impl GitObject for GitCommit {
             metadata.insert(split[0], split[1].to_string());
         }
         let tree: String = metadata.get("tree").unwrap_or(&String::new()).to_string();
-        let parent: Vec<String> = metadata.get("parent").unwrap_or(&String::new()).split(" ")
+        let parent: Vec<String> = metadata.get("parent")
+            .unwrap_or(&String::new())
+            .split(' ')
             .collect::<Vec<&str>>().
             iter()
             .map(|s| s.to_string())
+            .filter(|s| !s.is_empty())
             .collect();
         let author: String = metadata.get("author").unwrap_or(&String::new()).to_string();
         let committer: String = metadata.get("committer").unwrap_or(&String::new()).to_string();
@@ -141,6 +149,10 @@ impl GitObject for GitCommit {
             gpgsig,
             message: message.to_string(),
         }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn get_raw_data(&self) -> Vec<u8> {
@@ -161,6 +173,10 @@ impl GitObject for GitBlob {
         GitBlob { raw_data: crlf_to_lf(&data) }
     }
 
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn get_raw_data(&self) -> Vec<u8> {
         self.raw_data.clone()
     }
@@ -179,6 +195,10 @@ impl GitObject for GitTree {
         GitTree { raw_data: data }
     }
 
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn get_raw_data(&self) -> Vec<u8> {
         todo!()
     }
@@ -195,6 +215,10 @@ pub struct GitTag {
 impl GitObject for GitTag {
     fn new(data: Vec<u8>) -> Self where Self: Sized {
         GitTag { raw_data: data }
+    }
+
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
     }
 
     fn get_raw_data(&self) -> Vec<u8> {

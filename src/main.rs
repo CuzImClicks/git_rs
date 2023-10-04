@@ -3,9 +3,9 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 
-use crate::object::{deserialize, OBJECT_TYPES, read_git_object};
+use crate::object::{deserialize, GitCommit, read_git_object};
 use crate::repository::find_repo;
-use crate::utils::adjust_canonicalization;
+use crate::utils::{adjust_canonicalization, Set};
 
 mod repository;
 mod utils;
@@ -35,7 +35,7 @@ fn main() {
                      eprintln!("Usage: git cat-file <object>");
                 }
                 2 => {
-                    println!("{}", String::from_utf8(read_git_object(&repo, args[1].to_string()).unwrap().get_raw_data()).unwrap());
+                    println!("{}", String::from_utf8(read_git_object(&repo, &args[1].to_string()).unwrap().get_raw_data()).unwrap());
                 }
                 _ => {
 
@@ -94,7 +94,21 @@ fn main() {
             }
         }
         "log" => {
-            
+            let mut parent: Set<String> = Set::new();
+            parent.add(args[1].clone());
+            while !parent.is_empty() {
+                let last = parent.remove(parent.len() - 1);
+                let commit_obj = read_git_object(&repo, &last).unwrap();
+                let commit: &GitCommit = match commit_obj.as_any().downcast_ref::<GitCommit>() {
+                    Some(b) => b,
+                    None => {
+                        eprintln!("Error: '{}' is not a commit object!", last);
+                        return;
+                    }
+                };
+                println!("{} {}", last, commit.message);
+                parent.append(&commit.parent.clone());
+            }
         }
         "ls-files" => {
             
