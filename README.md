@@ -20,3 +20,5 @@ https://stackoverflow.com/a/34797622
 781992a8eaf46bc202dbd5ac5205e33e43e4e92c -> without gpgsig
 
 https://stackoverflow.com/questions/33687447/how-to-get-a-reference-to-a-concrete-type-from-a-trait-object
+
+https://www.rapidtables.com/convert/number/ascii-hex-bin-dec-converter.html
