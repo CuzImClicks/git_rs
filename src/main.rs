@@ -2,16 +2,18 @@ use std::env;
 use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
+use anyhow::{anyhow, Context, Result};
+use crate::enums::{GitObject, read_from_sha1};
 
-use crate::object::{deserialize, GitCommit, read_git_object};
 use crate::repository::find_repo;
 use crate::utils::{adjust_canonicalization, Set};
 
 mod repository;
 mod utils;
 mod object;
+mod enums;
 
-fn main() {
+fn main() -> Result<()> {
 
     let mut args: Vec<String> = env::args().collect();
 
@@ -19,7 +21,7 @@ fn main() {
 
     if args.is_empty() {
         println!("git_rs");
-        return;
+        return Ok(());
     }
 
     let mut repo = repository::Repository::new(find_repo(env::current_dir().unwrap()).unwrap());
@@ -29,13 +31,13 @@ fn main() {
 
         }
         "cat-file" => {
+            // cat-file <object hash>
             match args.len() {
                  x if x <= 1 => {
-                     eprintln!("Error: Not enough arguments provided!");
-                     eprintln!("Usage: git cat-file <object>");
+                     return Err(anyhow!("Error: Not enough arguments provided!\nUsage: git cat-file <object>"));
                 }
                 2 => {
-                    println!("{}", String::from_utf8(read_git_object(&repo, &args[1].to_string()).unwrap().get_raw_data()).unwrap());
+                    println!("{}", read_from_sha1(&repo, &args[1].to_string()).context("Failed to read object from sha1")?);
                 }
                 _ => {
 
@@ -56,7 +58,7 @@ fn main() {
             // hash-object [-w] [-t TYPE] FILE
             match args.len() {
                 x if x <= 1 => {
-                    eprintln!("Error: Not enough arguments provided!");
+                    return Err(anyhow!("Error: Not enough arguments provided!\nUsage: hash-object [-w] [-t TYPE] FILE"));
                 }
                 x if (2..=4).contains(&x) => {
                     let t: String = if let Some(i) = args.iter().position(|x| x == "-t") {
@@ -67,20 +69,19 @@ fn main() {
                     let write: bool = args.contains(&"-w".to_string());
                     let path = repo.repo_path(&args[args.len() - 1]);
                     if !path.exists() {
-                        eprintln!("Error: File does not exist!");
-                        return;
+                        return Err(anyhow!("Error: File '{}' does not exist!", path.display()));
                     }
 
                     let mut file = File::open(path).unwrap();
                     let mut buf = vec![];
                     file.read_to_end(&mut buf).unwrap();
-                    let obj = deserialize(buf, &t).unwrap();
+                    let obj: GitObject = GitObject::new(buf, t);
                     if write {
                         if let Err(e) = obj.write(&repo) {
-                            eprintln!("Error writing object: {}", e);
+                            return Err(anyhow!("Error writing object: {}", e));
                         }
                     } else {
-                        println!("{}", obj.serialize()); // FIXME: doesnt match with the git version
+                        println!("{}", obj.serialize());
                     }
                 }
                 _ => {}
@@ -90,24 +91,25 @@ fn main() {
             let mut r = repository::Repository::new(PathBuf::from(if args.len() == 1 { "." } else { &*args[1] }));
             match r.create() {
                 Ok(_) => println!("Initialized empty Git repository in {}", adjust_canonicalization(&r.gitdir)),
-                Err(e) => eprintln!("Error: {}", e)
+                Err(e) => return Err(anyhow!("Error: {}", e))
             }
         }
         "log" => {
-            let mut parent: Set<String> = Set::new();
-            parent.add(args[1].clone());
-            while !parent.is_empty() {
-                let last = parent.remove(parent.len() - 1);
-                let commit_obj = read_git_object(&repo, &last).unwrap();
-                let commit: &GitCommit = match commit_obj.as_any().downcast_ref::<GitCommit>() {
-                    Some(b) => b,
-                    None => {
-                        eprintln!("Error: '{}' is not a commit object!", last);
-                        return;
-                    }
-                };
-                println!("{} {}", last, commit.message);
-                parent.append(&commit.parent.clone());
+            match args.len() {
+                x if x != 2 => {
+                    return Err(anyhow!("Invalid amount of arguments provided!\nUsage: git log <HEAD>"));
+                }
+                _ => {}
+            }
+            let mut parents: Set<String> = Set::new();
+            parents.add(args[1].clone());
+            while !parents.is_empty() {
+                let last = parents.remove(parents.len() - 1);
+                let commit_obj = read_from_sha1(&repo, &last).unwrap();
+                if let GitObject::Commit { raw_data, tree, parent, author, committer, gpgsig, message } = commit_obj {
+                    parents.append(&parent.clone());
+                    println!("{} - {}", last, message.replace("\n\n", "\n"));
+                }
             }
         }
         "ls-files" => {
@@ -139,7 +141,8 @@ fn main() {
             
         }
         _ => {
-            println!("Invalid argument provided!");
+            return Err(anyhow!("'{:?}' Invalid argument provided!", args));
         }
     }
+    Ok(())
 }
