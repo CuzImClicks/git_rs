@@ -89,9 +89,9 @@ fn main() -> Result<()> {
             }
         }
         "init" => {
-            let mut r = repository::Repository::new(PathBuf::from(if args.len() == 1 { "." } else { &*args[1] }));
-            match r.create() {
-                Ok(_) => println!("Initialized empty Git repository in {}", adjust_canonicalization(&r.gitdir)),
+            repo = repository::Repository::new(PathBuf::from(if args.len() == 1 { "." } else { &*args[1] }));
+            match repo.create() {
+                Ok(_) => println!("Initialized empty Git repository in {}", adjust_canonicalization(&repo.gitdir)),
                 Err(e) => return Err(anyhow!("{}", e))
             }
         }
