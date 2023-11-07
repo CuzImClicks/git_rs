@@ -1,11 +1,13 @@
 use std::collections::HashMap;
 use std::fmt::Display;
 use std::fs::File;
-use std::io::{Read, Write};
-use crate::repository::Repository;
-use anyhow::{anyhow, Context, Result};
-use sha1::{Sha1, Digest};
+use std::io::Write;
+
+use anyhow::{anyhow, Result};
+use sha1::{Digest, Sha1};
 use sha1::digest::FixedOutput;
+
+use crate::repository::Repository;
 
 #[derive(Debug)]
 pub enum GitObject {
@@ -20,11 +22,19 @@ pub enum GitObject {
         message: String 
     },
     Tree {
-        raw_data: Vec<u8>
+        raw_data: Vec<u8>,
+        leaves: Vec<TreeLeaf>
     },
     Tag {
         raw_data: Vec<u8>
     }
+}
+
+#[derive(Debug)]
+pub struct TreeLeaf {
+    pub mode: String,
+    pub name: String,
+    pub hash: Vec<u8>
 }
 
 pub fn get_git_type(object: &GitObject) -> &'static str {
@@ -42,7 +52,9 @@ impl GitObject {
         
         match type_.as_str() {
             "blob" => GitObject::Blob { raw_data: data },
-            "tree" => GitObject::Tree { raw_data: data },
+            "tree" => {
+                create_tree(data)
+            },
             "commit" => {
                 create_commit(data)
             },
@@ -51,16 +63,12 @@ impl GitObject {
         }
     }
 
+    /// Writes the serialized and compressed object to the repository.
+    /// See: [`GitObject::serialize`]
     pub fn write(&self, repo: &Repository) -> Result<()> {
-        let data: Vec<u8> = match self {
-            GitObject::Blob { raw_data } => { raw_data.clone() }
-            GitObject::Tree { raw_data } => { raw_data.clone() }
-            GitObject::Tag { raw_data } => { raw_data.clone() }
-            GitObject::Commit { raw_data, .. } => { raw_data.clone() }
-        };
-
-        let (before, after) = &data.split_at(2);
-        let path = repo.repo_create_file_vec(vec!["objects", &*String::from_utf8(before.to_vec()).unwrap(), &*String::from_utf8(after.to_vec()).unwrap()]).unwrap();
+        let hash = self.hash();
+        let (before, after) = hash.split_at(2);
+        let path = repo.repo_create_file_vec(vec!["objects", before, after]).unwrap();
         let result = self.serialize();
 
         if !path.exists() {
@@ -68,7 +76,7 @@ impl GitObject {
             f.write_all(miniz_oxide::deflate::compress_to_vec_zlib(result.as_bytes(), 1).as_slice()).unwrap();
             Ok(())
         } else {
-            return Err(anyhow!("Object already exists"));
+            Err(anyhow!("Object already exists"))
         }
     }
 
@@ -79,10 +87,14 @@ impl GitObject {
         hex::encode(finalized)
     }
 
+    /// Serializes the object into the git format.
+    /// ```
+    /// <blob|tree|commit|tag> <len_data>\0<data>
+    /// ```
     pub fn serialize(&self) -> String {
         let data: Vec<u8> = match self {
             GitObject::Blob { raw_data } => { raw_data.clone() }
-            GitObject::Tree { raw_data } => { raw_data.clone() }
+            GitObject::Tree { raw_data, ..} => { raw_data.clone() }
             GitObject::Tag { raw_data } => { raw_data.clone() }
             GitObject::Commit { raw_data, .. } => { raw_data.clone() }
         };
@@ -97,8 +109,8 @@ impl Display for GitObject {
             GitObject::Blob { raw_data } => {
                 write!(f, "{}", String::from_utf8(raw_data.clone()).unwrap())
             }
-            GitObject::Tree { raw_data } => {
-                write!(f, "{}", String::from_utf8(raw_data.clone()).unwrap())
+            GitObject::Tree { leaves, .. } => {
+                write!(f, "{:?}", leaves)
             }
             GitObject::Tag { raw_data } => {
                 write!(f, "{}", String::from_utf8(raw_data.clone()).unwrap())
@@ -112,7 +124,7 @@ impl Display for GitObject {
 
 
 /// Creates a commit object from a byte array (decompressed and processed).
-fn create_commit(data: Vec<u8>) -> GitObject {
+pub(crate) fn create_commit(data: Vec<u8>) -> GitObject {
     let string: String = String::from_utf8(data.clone()).unwrap();
     let mut metadata: HashMap<&str, String> = HashMap::new();
     let big_split: Vec<&str> = string.splitn(2, "\n\n").collect::<Vec<&str>>();
@@ -149,62 +161,35 @@ fn create_commit(data: Vec<u8>) -> GitObject {
 }
 
 
-/// Returns a GitObject from a SHA1 hash provided a repository exists.
-pub fn read_from_sha1(repo: &Repository, sha: &String) -> Result<GitObject> {
-    let path = repo.repo_git_path_vec(vec!["objects", &sha[0..2], &sha[2..]]);
+pub(crate) fn create_tree(data: Vec<u8>) -> GitObject {
+    let mut cursor = 0;
+    let mut result: Vec<TreeLeaf> = Vec::new();
+    while cursor < data.len() {
+        let mut mode = String::new();
+        while data[cursor] != 32 {
+            mode.push(data[cursor] as char);
+            cursor += 1;
+        }
 
-    if !path.exists() {
-        return Err(anyhow!("Object does not exist {}", sha));
-    } else if !path.is_file() {
-        return Err(anyhow!("Object isn't a file {}", sha));
+        cursor += 1; // skip space
+
+        let mut name = String::new();
+
+        while data[cursor] != 0 {
+            name.push(data[cursor] as char);
+            cursor += 1;
+        }
+
+        cursor += 1; // skip \0
+
+        let mut hash: Vec<u8> = Vec::new();
+        for _ in 0..20 {
+            hash.push(data[cursor]);
+            cursor += 1;
+        }
+
+        result.push(TreeLeaf { mode, name, hash });
     }
 
-    let mut f = File::open(path)?;
-    let mut buf = vec![];
-    f.read_to_end(&mut buf)?;
-    parse_from_raw(buf)
-}
-
-
-/// Parses a GitObject from a byte array.
-/// `<blob|tree|commit|tag> <len_data>\0<data>`
-pub fn parse_from_raw(data: Vec<u8>) -> Result<GitObject> {
-    let raw: Vec<u8> = match miniz_oxide::inflate::decompress_to_vec_zlib(&data) {
-        Ok(v) => { v }
-        Err(_) => { return Err(anyhow!("Failed to decompress data")); }
-    };
-
-
-    let x: usize = match raw.iter().position(|x| *x == 32u8) {
-        Some(v) => { v }
-        None => { return Err(anyhow!("Failed to find space")); }
-    };
-
-    let fmt = match String::from_utf8(raw[0..x].to_vec()) {
-        Ok(v) => { v }
-        Err(_) => { return Err(anyhow!("Failed to parse format")); }
-    };
-
-    let y = 1 + x + raw[x+1..].iter().position(|x| *x == 0u8).context("Failed to find 0 byte")?; //+1 because \0 is 2 wide
-    let size = String::from_utf8(raw[x+1..y].to_vec()).context("Failed to parse the size of the data")?.parse::<usize>().unwrap();
-
-    if size != raw.len() -y - 1{
-        return Err(anyhow!("Malformed object"));
-    }
-
-    parse_from_bytes(&fmt, raw[y+1..].to_vec())
-}
-
-
-/// takes in the processed and validated data and the type of object then returns it as an enum
-pub fn parse_from_bytes(fmt: &str, data: Vec<u8>) -> Result<GitObject> {
-    match fmt {
-        "commit" => {
-            Ok(create_commit(data))
-        },
-        "blob" => Ok(GitObject::Blob { raw_data: data }),
-        "tree" => Ok(GitObject::Tree { raw_data: data }),
-        "tag" => Ok(GitObject::Tag { raw_data: data }),
-        _ => Err(anyhow!("Unknown type {}", fmt)),
-    }
+    GitObject::Tree { raw_data: data, leaves: result }
 }

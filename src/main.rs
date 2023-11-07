@@ -3,15 +3,16 @@ use std::fs::File;
 use std::io::Read;
 use std::path::PathBuf;
 use anyhow::{anyhow, Context, Result};
-use crate::enums::{GitObject, read_from_sha1};
+use crate::enums::{GitObject};
+use crate::functions::read_from_sha1;
 
 use crate::repository::find_repo;
 use crate::utils::{adjust_canonicalization, Set};
 
 mod repository;
 mod utils;
-mod object;
 mod enums;
+mod functions;
 
 fn main() -> Result<()> {
 
@@ -34,7 +35,7 @@ fn main() -> Result<()> {
             // cat-file <object hash>
             match args.len() {
                  x if x <= 1 => {
-                     return Err(anyhow!("Error: Not enough arguments provided!\nUsage: git cat-file <object>"));
+                     return Err(anyhow!("Not enough arguments provided!\nUsage: git cat-file <object>"));
                 }
                 2 => {
                     println!("{}", read_from_sha1(&repo, &args[1].to_string()).context("Failed to read object from sha1")?);
@@ -58,7 +59,7 @@ fn main() -> Result<()> {
             // hash-object [-w] [-t TYPE] FILE
             match args.len() {
                 x if x <= 1 => {
-                    return Err(anyhow!("Error: Not enough arguments provided!\nUsage: hash-object [-w] [-t TYPE] FILE"));
+                    return Err(anyhow!("Not enough arguments provided!\nUsage: hash-object [-w] [-t TYPE] FILE"));
                 }
                 x if (2..=4).contains(&x) => {
                     let t: String = if let Some(i) = args.iter().position(|x| x == "-t") {
@@ -69,7 +70,7 @@ fn main() -> Result<()> {
                     let write: bool = args.contains(&"-w".to_string());
                     let path = repo.repo_path(&args[args.len() - 1]);
                     if !path.exists() {
-                        return Err(anyhow!("Error: File '{}' does not exist!", path.display()));
+                        return Err(anyhow!("File '{}' does not exist!", path.display()));
                     }
 
                     let mut file = File::open(path).unwrap();
@@ -91,7 +92,7 @@ fn main() -> Result<()> {
             let mut r = repository::Repository::new(PathBuf::from(if args.len() == 1 { "." } else { &*args[1] }));
             match r.create() {
                 Ok(_) => println!("Initialized empty Git repository in {}", adjust_canonicalization(&r.gitdir)),
-                Err(e) => return Err(anyhow!("Error: {}", e))
+                Err(e) => return Err(anyhow!("{}", e))
             }
         }
         "log" => {
@@ -106,9 +107,11 @@ fn main() -> Result<()> {
             while !parents.is_empty() {
                 let last = parents.remove(parents.len() - 1);
                 let commit_obj = read_from_sha1(&repo, &last).unwrap();
-                if let GitObject::Commit { raw_data, tree, parent, author, committer, gpgsig, message } = commit_obj {
+                if let GitObject::Commit { parent, message, .. } = commit_obj {
                     parents.append(&parent.clone());
                     println!("{} - {}", last, message.replace("\n\n", "\n"));
+                } else {
+                    return Err(anyhow!("Object is not a commit!"));
                 }
             }
         }
