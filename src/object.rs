@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{Read, Write};
+use anyhow::{anyhow, Context, Result};
 
 use sha1::{Digest, Sha1};
 use sha1::digest::FixedOutput;
@@ -8,39 +9,39 @@ use sha1::digest::FixedOutput;
 use crate::repository::Repository;
 use crate::utils::crlf_to_lf;
 
-pub fn read_git_object(repo: &Repository, sha: &String) -> Result<Box<dyn GitObject>, String> {
+pub fn read_git_object(repo: &Repository, sha: &String) -> Result<Box<dyn GitObject>> {
     let path = repo.repo_git_path_vec(vec!["objects", &sha[0..2], &sha[2..]]);
 
     if !path.exists() {
-        return Err(format!("Object does not exist {}", sha));
+        return Err(anyhow!("Object does not exist {}", sha));
     } else if !path.is_file() {
-        return Err(format!("Object isn't a file {}", sha));
+        return Err(anyhow!("Object isn't a file {}", sha));
     }
 
     let mut file = File::open(path).unwrap();
     let mut buf: Vec<u8> = vec![];
     file.read_to_end(&mut buf).unwrap();
-    let raw: String = String::from_utf8(miniz_oxide::inflate::decompress_to_vec_zlib(&buf).unwrap()).unwrap();
-    let x = raw.find(' ').unwrap();
-    let fmt = raw[0..x].to_string();
+    let raw: Vec<u8> = miniz_oxide::inflate::decompress_to_vec_zlib(&buf).unwrap();
+    let x: usize = raw.iter().position(|x| *x == 32u8).unwrap();
+    let fmt = String::from_utf8(raw[0..x].to_vec()).unwrap();
 
-    let y = 1 + x + raw[x+1..].find('\0').unwrap(); //+1 because \0 is 2 wide
-    let size = raw[x+1..y].parse::<usize>().unwrap();
+    let y = 1 + x + raw[x+1..].iter().position(|x| *x == 0u8).unwrap(); //+1 because \0 is 2 wide
+    let size = String::from_utf8(raw[x+1..y].to_vec()).context("Failed to parse the size of the data")?.parse::<usize>().unwrap();
     if size != raw.len() -y - 1{
-        return Err(format!("Malformed object {}", sha));
+        return Err(anyhow!("Malformed object {}", sha));
     }
-    deserialize(raw[y+1..].as_bytes().to_vec(), &fmt)
+    deserialize(raw[y+1..].to_vec(), &fmt)
 }
 
 
 /// Creates a new GitObject from the serialized data of an object.
-pub fn deserialize(data: Vec<u8>, fmt: &str) -> Result<Box<dyn GitObject>, String> {
+pub fn deserialize(data: Vec<u8>, fmt: &str) -> Result<Box<dyn GitObject>> {
     match fmt {
         "commit" => Ok(Box::new(GitCommit::new(data))),
         "blob" => Ok(Box::new(GitBlob::new(data))),
         "tree" => Ok(Box::new(GitTree::new(data))),
         "tag" => Ok(Box::new(GitTag::new(data))),
-        _ => Err(format!("Unknown type {}", fmt)),
+        _ => Err(anyhow!("Unknown type {}", fmt)),
     }
 }
 
